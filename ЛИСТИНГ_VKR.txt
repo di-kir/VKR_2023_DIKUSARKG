@@ -1,0 +1,290 @@
+import numpy as np 
+import pandas as pd 
+import matplotlib.pyplot as plt
+from datetime import datetime
+from keras.models import Sequential
+from keras.layers import Dense, LSTM, Dropout, GRU
+from keras.layers import *
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.model_selection import train_test_split
+from keras.callbacks import EarlyStopping
+from keras.optimizers import Adam, SGD
+from adtk.data import validate_series
+from adtk.visualization import plot
+from adtk.detector import ThresholdAD
+from adtk.detector import OutlierDetector
+
+df = pd.read_csv('AMD.csv')
+df = df[['Date','Close']]
+df['Date']= pd.to_datetime(df['Date'])
+df
+
+df = df.set_index('Date')
+df.head(3)
+
+df.shape
+
+df.head()
+
+plot(df, ts_linewidth = 3, figsize=(20,7))
+plt.legend(fontsize='x-large')
+plt.xticks(fontsize='x-large')
+plt.yticks(fontsize='x-large')
+plt.xlabel('Date', fontsize='x-large')
+plt.ylabel('Close', fontsize='x-large')
+
+
+df.describe()
+
+df.describe()
+
+fig = df.hist(figsize=(15,10), label = 'x-large')
+plt.xticks(range(17), fontsize='x-large')
+plt.yticks(fontsize='x-large')
+
+from sklearn.neighbors import LocalOutlierFactor
+
+
+lof = OutlierDetector(LocalOutlierFactor(contamination=0.004))
+anomalies = lof.fit_detect(df)
+plot(df, anomaly=anomalies, ts_linewidth=3, anomaly_color='red', anomaly_alpha=0.3, curve_group='all', figsize = (20,7));
+plt.legend(fontsize='17',loc="lower right", frameon = True)
+
+
+plt.xticks(fontsize='20')
+plt.yticks(fontsize='20')
+plt.xlabel('Date', fontsize='20')
+plt.ylabel('Close', fontsize='20')
+
+anomalies[anomalies]
+
+
+num_shape = 2200
+
+train = df.iloc[:num_shape, 0:2].values
+test = df.iloc[num_shape:, 0:2].values
+
+
+sc = MinMaxScaler(feature_range = (0, 1))
+train_scaled = sc.fit_transform(train)
+
+
+X_train = []
+
+y_train = []
+
+window = 30
+
+for i in range(window, num_shape):
+    X_train_ = np.reshape(train_scaled[i-window:i, 0], (window, 1))
+    X_train.append(X_train_)
+    y_train.append(train_scaled[i, 0])
+X_train = np.stack(X_train)
+y_train = np.stack(y_train)
+
+
+model = Sequential()
+
+
+model.add(LSTM(units = 50, return_sequences = True, input_shape = (X_train.shape[1], 1)))
+model.add(Dropout(0.2))
+
+model.add(LSTM(units = 50, return_sequences = True))
+model.add(Dropout(0.2))
+
+model.add(LSTM(units = 50, return_sequences = True))
+model.add(Dropout(0.2))
+
+model.add(LSTM(units = 50))
+model.add(Dropout(0.2))
+
+model.add(Dense(1))
+model.summary()
+
+
+model.compile(optimizer = 'adam', loss = 'mean_squared_error')
+history = model.fit(X_train, y_train, epochs = 5, batch_size = 16 , validation_split=0.1);
+
+
+plt.figure(figsize=(15,7))
+plt.plot(history.history['loss'], label='Training loss', linewidth=3)
+plt.plot(history.history['val_loss'], label='Validation loss', linewidth=3)
+plt.xticks(fontsize='15')
+plt.yticks(fontsize='15')
+plt.legend(fontsize='15')
+
+df_volume = np.vstack((train, test))
+
+inputs = df_volume[df_volume.shape[0] - test.shape[0] - window:]
+inputs = inputs.reshape(-1,1)
+inputs = sc.transform(inputs)
+
+num_2 = df_volume.shape[0] - num_shape + window
+
+X_test = []
+
+for i in range(window, num_2):
+    X_test_ = np.reshape(inputs[i-window:i, 0], (window, 1))
+    X_test.append(X_test_)
+    
+X_test = np.stack(X_test)
+
+predict = model.predict(X_test)
+predict = sc.inverse_transform(predict)
+
+
+diff = predict - test
+
+print("MSE:", np.mean(diff**2))
+print("MAE:", np.mean(abs(diff)))
+print("RMSE:", np.sqrt(np.mean(diff**2)))
+
+
+
+df = df.reset_index()
+
+
+plt.figure(figsize=(20,7))
+plt.plot(df['Date'].values[200:], df_volume[200:], label = 'real Close', linewidth=3)
+plt.plot(df['Date'][-predict.shape[0]:].values, predict, label = 'Predicted Close', linewidth=3)
+plt.xticks(fontsize='17')
+plt.yticks(fontsize='17')
+plt.title('Close predict', fontsize='17')
+plt.xlabel('Date', fontsize='17')
+plt.ylabel('Close', fontsize='17')
+plt.legend(fontsize='17',loc="lower right", frameon = True)
+
+
+plt.figure(figsize=(20,7))
+plt.plot(df['Date'].values[2200:], df_volume[2200:], label = 'real Close', linewidth=3)
+plt.plot(df['Date'][-predict.shape[0]:].values, predict, label = 'Predicted Close', linewidth=3)
+plt.xticks(fontsize='17')
+plt.yticks(fontsize='17')
+plt.title('Close predict', fontsize='17')
+plt.xlabel('Date', fontsize='17')
+plt.ylabel('Close', fontsize='17')
+plt.legend(fontsize='17',loc="lower right", frameon = True)
+
+
+# GRU
+
+df_gru = pd.read_csv('AMD.csv')
+df_gru = df_gru[['Date', 'Close']]
+df_gru = df_gru.sort_values('Date').reset_index(drop=True)
+df_gru
+
+
+num_shape = 2200
+
+train = df_gru.iloc[:num_shape, 1:2].values
+test = df_gru.iloc[num_shape:, 1:2].values
+
+
+sc = MinMaxScaler(feature_range = (0, 1))
+train_scaled = sc.fit_transform(train)
+
+
+X_train = []
+
+y_train = []
+
+window = 120
+
+for i in range(window, num_shape):
+    X_train_ = np.reshape(train_scaled[i-window:i, 0], (window, 1))
+    X_train.append(X_train_)
+    y_train.append(train_scaled[i, 0])
+X_train = np.stack(X_train)
+y_train = np.stack(y_train)
+
+
+modelGRU = Sequential()
+
+modelGRU.add(GRU(units=50, return_sequences=True, input_shape=(X_train.shape[1],1)))
+modelGRU.add(Dropout(0.2))
+
+modelGRU.add(GRU(units=50, return_sequences=True, input_shape=(X_train.shape[1],1)))
+modelGRU.add(Dropout(0.2))
+
+modelGRU.add(GRU(units=50, return_sequences=True, input_shape=(X_train.shape[1],1)))
+modelGRU.add(Dropout(0.2))
+
+modelGRU.add(GRU(units=50))
+modelGRU.add(Dropout(0.2))
+
+modelGRU.add(Dense(units=1))
+modelGRU.summary()
+
+
+
+modelGRU.compile(optimizer='adam', loss='mean_squared_error')
+modelGRU.fit(X_train, y_train, epochs=5, batch_size=64)
+
+
+plt.figure(figsize=(15,7))
+plt.plot(history.history['loss'], label='Training loss', linewidth=3)
+plt.plot(history.history['val_loss'], label='Validation loss', linewidth=3)
+plt.xticks(fontsize='15')
+plt.yticks(fontsize='15')
+plt.legend(fontsize='15')
+
+
+
+df_gru_volume = np.vstack((train, test))
+
+inputs = df_gru_volume[df_gru_volume.shape[0] - test.shape[0] - window:]
+inputs = inputs.reshape(-1,1)
+inputs = sc.transform(inputs)
+
+num_2 = df_gru_volume.shape[0] - num_shape + window
+
+X_test = []
+
+for i in range(window, num_2):
+    X_test_ = np.reshape(inputs[i-window:i, 0], (window, 1))
+    X_test.append(X_test_)
+    
+X_test = np.stack(X_test)
+
+
+
+predict_gru = modelGRU.predict(X_test)
+predict_gru = sc.inverse_transform(predict_gru)
+
+
+
+diff = predict_gru - test
+
+print("MSE:", np.mean(diff**2))
+print("MAE:", np.mean(abs(diff)))
+print("RMSE:", np.sqrt(np.mean(diff**2)))
+
+
+plt.figure(figsize=(20,7))
+plt.plot(df['Date'].values[200:], df_gru_volume[200:], label = 'real Close', linewidth=3)
+plt.plot(df['Date'][-predict_gru.shape[0]:].values, predict_gru, label = 'Predicted Close [LSTM]', linewidth=3)
+plt.plot(df['Date'][-predict.shape[0]:].values, predict, label = 'Predicted Close [GRU]', linewidth=3)
+plt.xticks(fontsize='17')
+plt.yticks(fontsize='17')
+plt.title('Close predict', fontsize='17')
+plt.xlabel('Date', fontsize='17')
+plt.ylabel('Close', fontsize='17')
+plt.legend(fontsize='17',loc="lower right", frameon = True)
+
+
+
+plt.figure(figsize=(20,7))
+plt.plot(df['Date'].values[2200:], df_gru_volume[2200:], label = 'real Close', linewidth=3)
+plt.plot(df['Date'][-predict_gru.shape[0]:].values, predict_gru, label = 'Predicted Close [LSTM]', linewidth=3)
+plt.plot(df['Date'][-predict.shape[0]:].values, predict, label = 'Predicted Close [GRU]', linewidth=3)
+plt.xticks(fontsize='17')
+plt.yticks(fontsize='17')
+plt.title('Close predict', fontsize='17')
+plt.xlabel('Date', fontsize='17')
+plt.ylabel('Close', fontsize='17')
+plt.legend(fontsize='17',loc="lower right", frameon = True)
+
+
+
+
